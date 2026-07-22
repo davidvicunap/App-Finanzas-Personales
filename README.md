@@ -1,7 +1,16 @@
 # App-Finanzas-Personales
 
-Un tracker de gastos e ingresos simple y fácil de usar, con dashboard.
+Un tracker de gastos e ingresos simple, privado y bonito, con dashboard.
 Los movimientos se añaden manualmente. Una sola persona, un solo archivo.
+
+## Qué incluye
+
+- **Resumen** con balance del mes, tasa de ahorro y comparación con el mes anterior.
+- **Gráfico** de ingresos vs. gastos de los últimos 6 meses y **dona** de gastos por categoría.
+- **Movimientos** agrupados por día, con buscador y filtros por tipo y categoría.
+- **Modo claro y oscuro** (sigue tu sistema y recuerda tu elección).
+- **Categorías** personalizables con emojis automáticos, y varias monedas.
+- **Deshacer** al borrar, atajos de teclado (`N` nuevo, `←/→` cambiar de mes) y respaldo en `.json`.
 
 ## Cómo funciona (la parte importante)
 
@@ -33,4 +42,5 @@ Usaremos **GitHub Pages**:
 ## Para modificarla
 
 Todo el código (estilos y lógica) está comentado en español dentro de `index.html`.
-Los colores y tipografías se controlan en la sección de tokens (`:root`) al inicio.
+Los colores y tipografías se controlan en la sección de tokens (`:root`) al inicio, que
+tiene dos temas: claro y oscuro (`:root[data-theme="dark"]`).

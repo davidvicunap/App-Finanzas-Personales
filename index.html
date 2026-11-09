@@ -316,6 +316,8 @@
   .tx-amt.expense { color: var(--ink); }
   .tx-actions { display: flex; gap: 2px; opacity: 0; transform: translateX(6px); transition: opacity .14s, transform .14s; margin-left: 2px; }
   .tx:hover .tx-actions, .tx:focus-within .tx-actions { opacity: 1; transform: none; }
+  /* En pantallas táctiles no existe "hover": los botones deben verse siempre. */
+  @media (hover: none) { .tx-actions { opacity: 1; transform: none; } }
   .tx-actions button { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; color: var(--muted); transition: background .12s, color .12s; }
   .tx-actions button:hover { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
   .tx-actions button.del:hover { color: var(--expense); background: var(--expense-soft); }
@@ -378,7 +380,7 @@
 
   .field { margin-bottom: 15px; }
   .field > label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 7px; }
-  .field input[type="text"], .field input[type="number"], .field input[type="date"], .field select { width: 100%; padding: 12px 14px; border-radius: var(--radius-sm); border: 1.5px solid var(--line-strong); background: var(--surface); transition: border-color .14s, box-shadow .14s; }
+  .field input[type="text"], .field input[type="date"], .field select { width: 100%; padding: 12px 14px; border-radius: var(--radius-sm); border: 1.5px solid var(--line-strong); background: var(--surface); transition: border-color .14s, box-shadow .14s; }
   .field input:focus, .field select:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
   .amount-input { position: relative; }
   .amount-input .cur { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--muted); font-family: var(--font-mono); font-weight: 700; font-size: 20px; pointer-events: none; }
@@ -603,7 +605,7 @@
           </select>
         </div>
         <div class="set-row">
-          <div><div class="label">Moneda</div><div class="desc">Símbolo y formato de las cantidades.</div></div>
+          <div><div class="label">Moneda</div><div class="desc">Símbolo y formato de las cantidades. No convierte los montos ya registrados.</div></div>
           <select id="currency-select" onchange="changeCurrency(this.value)"></select>
         </div>
       </div>
@@ -685,7 +687,8 @@
     <div class="field amount-input">
       <label for="f-amount">Cantidad</label>
       <span class="cur" id="modal-cur">$</span>
-      <input type="number" id="f-amount" inputmode="decimal" step="0.01" min="0" placeholder="0.00" />
+      <!-- type="text" + inputmode="decimal": muestra el teclado numérico y acepta coma o punto decimal -->
+      <input type="text" id="f-amount" inputmode="decimal" autocomplete="off" placeholder="0.00" />
     </div>
     <div class="field">
       <label>Categoría</label>
@@ -721,7 +724,8 @@ const STORE_KEY = 'misfinanzas_v1';
 const THEME_KEY = 'misfinanzas_theme';
 
 const CURRENCIES = {
-  USD: { symbol: '$',  locale: 'en-US' },
+  CAD: { symbol: '$',  locale: 'en-CA' },
+  USD: { symbol: 'US$', locale: 'en-US' },
   EUR: { symbol: '€',  locale: 'es-ES' },
   MXN: { symbol: '$',  locale: 'es-MX' },
   COP: { symbol: '$',  locale: 'es-CO' },
@@ -733,7 +737,7 @@ const CURRENCIES = {
 
 const DEFAULT_DATA = {
   version: 1,
-  settings: { currency: 'USD' },
+  settings: { currency: 'CAD' },
   categories: {
     expense: ['Comida', 'Transporte', 'Vivienda', 'Servicios', 'Ocio', 'Salud', 'Compras', 'Otros'],
     income:  ['Salario', 'Inversiones', 'Freelance', 'Otros'],
@@ -779,15 +783,53 @@ function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return structuredClone(DEFAULT_DATA);
-    const parsed = JSON.parse(raw);
-    // Rellenar campos que falten para no romper con versiones futuras.
-    return { ...structuredClone(DEFAULT_DATA), ...parsed,
-      settings: { ...DEFAULT_DATA.settings, ...(parsed.settings || {}) },
-      categories: { ...DEFAULT_DATA.categories, ...(parsed.categories || {}) } };
+    return sanitizeData(JSON.parse(raw)).data;
   } catch (e) {
     console.error('No se pudo leer el almacenamiento:', e);
     return structuredClone(DEFAULT_DATA);
   }
+}
+
+/* Valida y limpia datos que vienen de fuera (localStorage o un respaldo).
+   Nunca confiamos en un archivo: un monto en texto o un id con comillas
+   podría romper los cálculos o ejecutar código. Devuelve los datos limpios
+   y cuántos movimientos se descartaron por inválidos. */
+function sanitizeData(input) {
+  const ID_RE = /^[a-z0-9]{4,32}$/i;   // solo letras y números: seguro dentro de HTML
+  const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+  const src = (input && typeof input === 'object') ? input : {};
+  const out = structuredClone(DEFAULT_DATA);
+
+  const cur = src.settings && src.settings.currency;
+  if (CURRENCIES[cur]) out.settings.currency = cur;
+
+  ['expense', 'income'].forEach(kind => {
+    const list = src.categories && src.categories[kind];
+    if (Array.isArray(list)) {
+      const clean = [...new Set(list.filter(c => typeof c === 'string').map(c => c.trim().slice(0, 40)).filter(Boolean))];
+      if (clean.length) out.categories[kind] = clean;
+    }
+  });
+
+  const txs = Array.isArray(src.transactions) ? src.transactions : [];
+  const seen = new Set();
+  let dropped = 0;
+  txs.forEach(t => {
+    const amount = roundMoney(Number(t && t.amount));
+    const ok = t && (t.type === 'income' || t.type === 'expense')
+      && Number.isFinite(amount) && amount > 0
+      && typeof t.date === 'string' && DATE_RE.test(t.date)
+      && typeof t.category === 'string' && t.category.trim();
+    if (!ok) { dropped++; return; }
+    let id = (typeof t.id === 'string' && ID_RE.test(t.id) && !seen.has(t.id)) ? t.id : uid();
+    seen.add(id);
+    out.transactions.push({
+      id, type: t.type, amount, date: t.date,
+      category: t.category.trim().slice(0, 40),
+      note: typeof t.note === 'string' ? t.note.slice(0, 80) : '',
+    });
+  });
+  return { data: out, dropped };
 }
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); }
@@ -801,15 +843,33 @@ function ymNow() { const d = new Date(); return d.getFullYear() + '-' + String(d
 function todayISO() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+/* ---- Dinero sin errores de redondeo ----
+   Los números decimales de JavaScript son "floats": 0.3 - 0.1 - 0.2 no da 0
+   sino -0.0000000000000000277. Para evitarlo, toda suma se hace en CENTAVOS
+   (enteros, que sí son exactos) y solo al final se divide entre 100. */
+function toCents(n) { return Math.round(n * 100); }
+function roundMoney(n) { return toCents(n) / 100; }
+// Suma una lista de montos de forma exacta.
+function sumMoney(amounts) { return amounts.reduce((s, a) => s + toCents(a), 0) / 100; }
+// Convierte lo que escribe la persona ("12,50", "1 234.5", "$8") en número, o NaN.
+function parseAmount(text) {
+  const s = String(text || '').replace(/[\s$]/g, '').replace(',', '.');
+  if (!/^\d+(\.\d{0,2})?$/.test(s)) return NaN;
+  return roundMoney(parseFloat(s));
+}
+
 function fmtMoney(n) {
-  const cfg = CURRENCIES[data.settings.currency] || CURRENCIES.USD;
+  const cfg = CURRENCIES[data.settings.currency] || CURRENCIES.CAD;
+  n = roundMoney(n) || 0;   // evita mostrar "-$0" por restos de redondeo
   const sign = n < 0 ? '-' : '';
-  const val = Math.abs(n).toLocaleString(cfg.locale, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  // Montos enteros sin decimales ($36); con centavos, siempre dos ($12.50).
+  const digits = Number.isInteger(n) ? 0 : 2;
+  const val = Math.abs(n).toLocaleString(cfg.locale, { minimumFractionDigits: digits, maximumFractionDigits: 2 });
   return sign + cfg.symbol + val;
 }
 // Versión compacta ($1.2k / $3.4M) para espacios pequeños como el centro de la dona.
 function fmtCompact(n) {
-  const cfg = CURRENCIES[data.settings.currency] || CURRENCIES.USD;
+  const cfg = CURRENCIES[data.settings.currency] || CURRENCIES.CAD;
   const abs = Math.abs(n); let s;
   if (abs >= 1e6) s = (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
   else if (abs >= 1e4) s = (n / 1e3).toFixed(0) + 'k';
@@ -817,10 +877,15 @@ function fmtCompact(n) {
   else s = Math.round(n).toString();
   return cfg.symbol + s;
 }
-function monthLabel(ym) {
+// 'YYYY-MM' -> Date del día 1 a medianoche LOCAL.
+// Ojo: new Date('2026-11-01') se interpreta en UTC, y en Vancouver (UTC-8)
+// eso cae el 31 de octubre. Por eso construimos la fecha con números.
+function ymToDate(ym) {
   const [y, m] = ym.split('-').map(Number);
-  const d = new Date(y, m - 1, 1);
-  return d.toLocaleDateString('es', { month: 'long', year: 'numeric' });
+  return new Date(y, m - 1, 1);
+}
+function monthLabel(ym) {
+  return ymToDate(ym).toLocaleDateString('es', { month: 'long', year: 'numeric' });
 }
 function shiftYm(ym, delta) {
   let [y, m] = ym.split('-').map(Number);
@@ -831,7 +896,7 @@ function shiftYm(ym, delta) {
 }
 function txMonth(t) { return t.date.slice(0, 7); }
 function txForMonth(ym) { return data.transactions.filter(t => txMonth(t) === ym); }
-function sumType(txs, type) { return txs.filter(t => t.type === type).reduce((s, t) => s + t.amount, 0); }
+function sumType(txs, type) { return sumMoney(txs.filter(t => t.type === type).map(t => t.amount)); }
 
 function catEmoji(name) {
   const n = (name || '').toLowerCase();
@@ -859,7 +924,10 @@ function applyTheme(t) {
   const sel = document.getElementById('theme-select');
   if (sel) sel.value = t;
 }
-function setTheme(t) { localStorage.setItem(THEME_KEY, t); applyTheme(t); }
+function setTheme(t) {
+  try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* modo privado: solo aplica en esta sesión */ }
+  applyTheme(t);
+}
 function toggleTheme() { setTheme(currentTheme() === 'dark' ? 'light' : 'dark'); }
 
 /* ============================================================
@@ -881,8 +949,9 @@ function goToday() { currentMonth = ymNow(); renderAll(); }
 function openModal(id = null) {
   editingId = id;
   const modal = document.getElementById('backdrop');
-  if (id) {
-    const t = data.transactions.find(x => x.id === id);
+  const t = id ? data.transactions.find(x => x.id === id) : null;
+  if (id && !t) { editingId = null; return; }   // id inexistente: no abrir nada
+  if (t) {
     document.getElementById('modal-title').textContent = 'Editar movimiento';
     document.getElementById('f-amount').value = t.amount;
     document.getElementById('f-date').value = t.date;
@@ -911,14 +980,17 @@ function closeModal() {
 function setType(type, keepCat = false) {
   modalType = type;
   document.getElementById('type-seg').dataset.sel = type;
-  document.getElementById('modal-cur').textContent = (CURRENCIES[data.settings.currency] || CURRENCIES.USD).symbol;
-  const list = data.categories[type];
-  if (!keepCat || !list.includes(selectedCategory)) selectedCategory = list[0];
+  document.getElementById('modal-cur').textContent = (CURRENCIES[data.settings.currency] || CURRENCIES.CAD).symbol;
+  // Al editar (keepCat) conservamos la categoría original aunque ya no exista
+  // en Ajustes; si no, se cambiaría en silencio al guardar.
+  if (!keepCat || !selectedCategory) selectedCategory = data.categories[type][0];
   renderModalCats();
 }
 function renderModalCats() {
   const box = document.getElementById('f-category');
-  box.innerHTML = data.categories[modalType].map(c => {
+  const list = data.categories[modalType].slice();
+  if (selectedCategory && !list.includes(selectedCategory)) list.push(selectedCategory);
+  box.innerHTML = list.map(c => {
     const sel = c === selectedCategory ? ' sel' : '';
     return `<button type="button" class="cat-chip${sel}" data-cat="${esc(c)}"><span>${catIcon(c, modalType)}</span>${esc(c)}</button>`;
   }).join('');
@@ -946,7 +1018,7 @@ function syncQuickDate() {
 }
 
 function saveTransaction() {
-  const amount = parseFloat(document.getElementById('f-amount').value);
+  const amount = parseAmount(document.getElementById('f-amount').value);
   const category = selectedCategory;
   const date = document.getElementById('f-date').value;
   const note = document.getElementById('f-note').value.trim();
@@ -1102,7 +1174,7 @@ function renderBarChart() {
   document.getElementById('bar-chart').innerHTML = rows.map((r, i) => {
     const ih = Math.max(r.income ? (r.income / max) * 100 : 0, r.income ? 2 : 0);
     const eh = Math.max(r.expense ? (r.expense / max) * 100 : 0, r.expense ? 2 : 0);
-    const short = new Date(r.ym + '-01').toLocaleDateString('es', { month: 'short' }).replace('.', '');
+    const short = ymToDate(r.ym).toLocaleDateString('es', { month: 'short' }).replace('.', '');
     const isCurrent = r.ym === currentMonth;
     const delay = (i * 0.05).toFixed(2);
     return `<div class="bar-col${isCurrent ? ' current' : ''}" tabindex="0">
@@ -1206,7 +1278,7 @@ function renderList() {
 
   box.innerHTML = dates.map(date => {
     const dayTx = groups[date];
-    const dayNet = dayTx.reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0);
+    const dayNet = sumMoney(dayTx.map(t => t.type === 'income' ? t.amount : -t.amount));
     const netCls = dayNet > 0 ? 'pos' : (dayNet < 0 ? 'neg' : '');
     const head = `<div class="day-head"><span>${dayLabel(date)}</span><span class="day-net mono ${netCls}">${dayNet >= 0 ? '+' : ''}${fmtMoney(dayNet)}</span></div>`;
     return `<div class="day-group">${head}${dayTx.map(txRow).join('')}</div>`;
@@ -1224,11 +1296,20 @@ function txRow(t) {
       <div class="tx-amt ${t.type}">${t.type === 'expense' ? '−' : '+'}${fmtMoney(t.amount)}</div>
     </div>
     <div class="tx-actions">
-      <button onclick="openModal('${t.id}')" aria-label="Editar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-      <button class="del" onclick="deleteTx('${t.id}')" aria-label="Borrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+      <button data-act="edit" data-id="${esc(t.id)}" aria-label="Editar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+      <button class="del" data-act="del" data-id="${esc(t.id)}" aria-label="Borrar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
     </div>
   </div>`;
 }
+
+// Editar / borrar por delegación: el id viaja en data-id (escapado) y nunca
+// se mete dentro de un onclick, así un id malicioso no puede ejecutar código.
+document.getElementById('tx-list').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  if (btn.dataset.act === 'edit') openModal(btn.dataset.id);
+  else if (btn.dataset.act === 'del') deleteTx(btn.dataset.id);
+});
 
 function dayLabel(date) {
   const d = new Date(date + 'T00:00');
@@ -1245,7 +1326,7 @@ function renderSettings() {
   const cs = document.getElementById('currency-select');
   cs.innerHTML = Object.keys(CURRENCIES).map(c =>
     `<option value="${c}" ${c === data.settings.currency ? 'selected' : ''}>${c} (${CURRENCIES[c].symbol})</option>`).join('');
-  document.getElementById('modal-cur').textContent = (CURRENCIES[data.settings.currency] || CURRENCIES.USD).symbol;
+  document.getElementById('modal-cur').textContent = (CURRENCIES[data.settings.currency] || CURRENCIES.CAD).symbol;
 
   // Chips de categorías (con emoji y borrado por delegación)
   ['expense', 'income'].forEach(kind => {
@@ -1306,12 +1387,12 @@ function importData(event) {
   reader.onload = e => {
     try {
       const imported = JSON.parse(e.target.result);
-      if (!imported.transactions || !Array.isArray(imported.transactions)) throw new Error('Formato inválido');
-      if (!confirm('Esto reemplazará tus datos actuales por los del archivo. ¿Continuar?')) return;
-      data = { ...structuredClone(DEFAULT_DATA), ...imported,
-        settings: { ...DEFAULT_DATA.settings, ...(imported.settings || {}) },
-        categories: { ...DEFAULT_DATA.categories, ...(imported.categories || {}) } };
-      save(); renderAll(); toast('Respaldo restaurado');
+      if (!imported || !Array.isArray(imported.transactions)) throw new Error('Formato inválido');
+      const { data: clean, dropped } = sanitizeData(imported);
+      const extra = dropped ? `\n\n${dropped} movimiento(s) inválido(s) se descartarán.` : '';
+      if (!confirm(`Esto reemplazará tus datos actuales por ${clean.transactions.length} movimiento(s) del archivo. ¿Continuar?${extra}`)) return;
+      data = clean;
+      save(); renderAll(); toast(dropped ? `Respaldo restaurado (${dropped} descartados)` : 'Respaldo restaurado');
     } catch (err) { toast('No se pudo leer el archivo'); }
   };
   reader.readAsText(file);
@@ -1366,8 +1447,13 @@ function toast(msg, action) {
    ============================================================ */
 document.addEventListener('keydown', e => {
   const modalOpen = document.getElementById('backdrop').classList.contains('open');
-  if (e.key === 'Escape') { closeModal(); return; }
-  if (modalOpen) { if (e.key === 'Enter') { e.preventDefault(); saveTransaction(); } return; }
+  if (e.key === 'Escape') { if (modalOpen) closeModal(); return; }
+  if (modalOpen) {
+    // Enter guarda solo si el foco NO está en un botón: así Enter sobre
+    // "Cancelar" cancela y sobre una categoría la selecciona.
+    if (e.key === 'Enter' && document.activeElement.tagName !== 'BUTTON') { e.preventDefault(); saveTransaction(); }
+    return;
+  }
   const typing = /^(input|select|textarea)$/i.test(document.activeElement.tagName);
   if (typing) return;
   if (e.key === 'n' || e.key === 'N') { e.preventDefault(); openModal(); }

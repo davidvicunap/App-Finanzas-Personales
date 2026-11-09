@@ -9,7 +9,8 @@ Los movimientos se añaden manualmente. Una sola persona, un solo archivo.
 - **Gráfico** de ingresos vs. gastos de los últimos 6 meses y **dona** de gastos por categoría.
 - **Movimientos** agrupados por día, con buscador y filtros por tipo y categoría.
 - **Modo claro y oscuro** (sigue tu sistema y recuerda tu elección).
-- **Categorías** personalizables con emojis automáticos, y varias monedas.
+- **Categorías** personalizables con emojis automáticos. Moneda por defecto: **CAD**
+  (también USD y otras; cambiar la moneda solo cambia el símbolo, no convierte montos).
 - **Deshacer** al borrar, atajos de teclado (`N` nuevo, `←/→` cambiar de mes) y respaldo en `.json`.
 
 ## Cómo funciona (la parte importante)

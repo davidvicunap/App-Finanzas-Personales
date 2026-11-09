@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createBackup, csvAmount, csvCell, parseBackup, transactionsToCsv } from './backup';
+import { createBackup, csvAmount, csvCell, decryptText, encryptText, isEncryptedBackup, parseBackup, transactionsToCsv } from './backup';
 import { defaultAccount, defaultCategories, defaultMember, defaultSettings } from './defaults';
 import type { AppData, Transaction } from './types';
 
@@ -24,6 +24,12 @@ function sample(): AppData {
     accounts: [defaultAccount('es', now)],
     categories: defaultCategories(),
     transactions: [structuredClone(tx)],
+    balances: [],
+    budgets: [],
+    goals: [],
+    holdings: [],
+    rooms: [],
+    contributions: [],
     settings: defaultSettings('es'),
   };
 }
@@ -94,5 +100,43 @@ describe('CSV', () => {
     const lines = csv.replace('\uFEFF', '').trim().split('\r\n');
     expect(lines[0]).toBe('date,type,amount,currency,category,account,member,note');
     expect(lines[1]).toBe('2026-11-09,expense,-12.50,CAD,Supermercado,Cuenta principal,Yo,Save-On-Foods');
+  });
+});
+
+describe('compatibilidad con respaldos v1', () => {
+  it('un respaldo de la fase 1 se restaura con las tablas nuevas vacías', () => {
+    const v1 = sample() as unknown as Record<string, unknown>;
+    for (const k of ['balances', 'budgets', 'goals', 'holdings', 'rooms', 'contributions']) delete v1[k];
+    v1.categories = (v1.categories as Record<string, unknown>[]).map(({ group: _g, ...c }) => c);
+    const s = v1.settings as Record<string, unknown>;
+    for (const k of ['onboarded', 'budgetMethod', 'projection', 'dismissedRecurring']) delete s[k];
+    const r = parseBackup(JSON.stringify({ format: 'mis-finanzas-backup', version: 1, exportedAt: '', data: v1 }));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.goals).toEqual([]);
+      expect(r.data.settings.onboarded).toBe(true);
+      expect(r.data.categories.find((c) => c.id === 'cat-housing')?.group).toBe('needs');
+    }
+  });
+
+  it('rechaza una posición con cantidad que no es decimal', () => {
+    const bad = sample();
+    bad.holdings.push({ id: 'h1', accountId: 'account-main', symbol: 'X', assetClass: 'stock', currency: 'USD', quantity: '1e5', unitPrice: '1', priceAsOf: '2026-11-01', multiplier: 1, costBasisCents: 0, createdAt: '' });
+    expect(parseBackup(JSON.stringify(createBackup(bad))).ok).toBe(false);
+  });
+});
+
+describe('respaldo cifrado', () => {
+  it('cifra y descifra; con otra contraseña falla', async () => {
+    const plain = JSON.stringify(createBackup(sample()));
+    const enc = await encryptText(plain, 'contraseña-larga');
+    expect(isEncryptedBackup(enc)).toBe(true);
+    expect(enc).not.toContain('Save-On-Foods');
+    expect(await decryptText(enc, 'contraseña-larga')).toBe(plain);
+    await expect(decryptText(enc, 'otra-contraseña')).rejects.toThrow('Contraseña incorrecta');
+  });
+
+  it('exige contraseñas de al menos 8 caracteres', async () => {
+    await expect(encryptText('x', 'corta')).rejects.toThrow();
   });
 });

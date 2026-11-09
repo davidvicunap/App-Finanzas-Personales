@@ -4,7 +4,10 @@ import {
   convertCents,
   formatMoney,
   formatRate,
+  marketValueCents,
+  mulDivCents,
   parseAmount,
+  parseDecimal,
   parseRate,
   ratio,
   sumCents,
@@ -117,5 +120,35 @@ describe('ratio', () => {
   it('maneja total 0', () => {
     expect(ratio(10, 0)).toBeNull();
     expect(ratio(25, 100)).toBe(0.25);
+  });
+});
+
+describe('decimales exactos (inversiones)', () => {
+  it('parseDecimal', () => {
+    expect(parseDecimal('12.345')).toEqual({ value: 12345n, scale: 3 });
+    expect(parseDecimal('0,5')).toEqual({ value: 5n, scale: 1 });
+    expect(parseDecimal('.25')).toEqual({ value: 25n, scale: 2 });
+    expect(parseDecimal('10')).toEqual({ value: 10n, scale: 0 });
+    expect(parseDecimal('-1')).toBeNull();
+    expect(parseDecimal('1.2.3')).toBeNull();
+    expect(parseDecimal('abc')).toBeNull();
+    expect(parseDecimal('0.12345678901')).toBeNull(); // más de 10 decimales
+  });
+
+  it('marketValueCents sin errores de float', () => {
+    expect(marketValueCents('10', '187.43')).toBe(187430);
+    expect(marketValueCents('0.5', '64000.10')).toBe(3200005);
+    // 0.1 × 0.2 en floats = 0.020000000000000004
+    expect(marketValueCents('0.1', '0.2')).toBe(2);
+    // 3 contratos de opciones a 2.15 × 100
+    expect(marketValueCents('3', '2.15', 100)).toBe(64500);
+    // satoshis: 0.00012345 BTC a 90,000.00
+    expect(marketValueCents('0.00012345', '90000')).toBe(1111); // 11.1105 → $11.11
+  });
+
+  it('mulDivCents', () => {
+    expect(mulDivCents(100000, 50, 100)).toBe(50000);
+    expect(mulDivCents(1, 1, 2)).toBe(1); // 0.5 → 1
+    expect(mulDivCents(-1, 1, 2)).toBe(-1);
   });
 });

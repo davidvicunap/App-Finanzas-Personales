@@ -114,3 +114,70 @@ describe('respaldo completo', () => {
     await other.delete();
   });
 });
+
+describe('fase 2+: saldos, presupuestos, metas, inversiones, registradas', () => {
+  it('setBalance reemplaza el saldo del mismo día', async () => {
+    await repo.setBalance(db, 'account-main', '2026-11-01', 100);
+    await repo.setBalance(db, 'account-main', '2026-11-01', 200);
+    await repo.setBalance(db, 'account-main', '2026-11-02', 300);
+    const all = await db.balances.toArray();
+    expect(all.map((b) => b.balanceCents).sort()).toEqual([200, 300]);
+    await expect(repo.setBalance(db, 'nope', '2026-11-01', 1)).rejects.toThrow();
+  });
+
+  it('setBudget con 0 quita el presupuesto', async () => {
+    await repo.setBudget(db, 'cat-dining', 30_000);
+    expect((await db.budgets.get('cat-dining'))?.monthlyCents).toBe(30_000);
+    await repo.setBudget(db, 'cat-dining', 0);
+    expect(await db.budgets.count()).toBe(0);
+    await expect(repo.setBudget(db, 'cat-dining', -1)).rejects.toThrow();
+  });
+
+  it('metas: crear, aportar (nunca bajo cero) y validar', async () => {
+    const g = await repo.addGoal(db, { name: ' Casa ', emoji: '', targetCents: 5_000_000, savedCents: 0, accountId: null, targetDate: '2028-06-01', ownerId: null });
+    expect(g).toMatchObject({ name: 'Casa', emoji: '🎯' });
+    await repo.addToGoal(db, g.id, 10_000);
+    await repo.addToGoal(db, g.id, -50_000);
+    expect((await db.goals.get(g.id))?.savedCents).toBe(0);
+    await expect(repo.addGoal(db, { ...g, targetCents: 0 })).rejects.toThrow();
+  });
+
+  it('posiciones: normaliza símbolo y decimales, rechaza inválidos', async () => {
+    const tfsa = await repo.addAccount(db, { name: 'TFSA', type: 'tfsa', currency: 'CAD', ownerId: null, institution: 'Wealthsimple' });
+    const h = await repo.addHolding(db, { accountId: tfsa.id, symbol: ' vfv ', assetClass: 'etf', currency: 'CAD', quantity: '10,5', unitPrice: '150', priceAsOf: '2026-11-08', multiplier: 1, costBasisCents: 100_000 });
+    expect(h).toMatchObject({ symbol: 'VFV', quantity: '10.5' });
+    await repo.updateHoldingPrice(db, h.id, '155.10', '2026-11-09');
+    expect(await db.holdings.get(h.id)).toMatchObject({ unitPrice: '155.10', priceAsOf: '2026-11-09' });
+    await expect(repo.addHolding(db, { ...h, quantity: 'diez' })).rejects.toThrow('Cantidad');
+    await expect(repo.updateHoldingPrice(db, h.id, '-1', '2026-11-09')).rejects.toThrow();
+  });
+
+  it('espacio registrado y aportes', async () => {
+    await repo.setRoom(db, 'member-1', 'tfsa', 2026, 700_000);
+    await repo.setRoom(db, 'member-1', 'tfsa', 2026, 750_000); // reemplaza
+    await repo.addContribution(db, { memberId: 'member-1', type: 'tfsa', date: '2026-02-01', amountCents: 100_000, note: '' });
+    expect(await db.rooms.count()).toBe(1);
+    expect((await db.rooms.get('member-1:tfsa:2026'))?.roomCents).toBe(750_000);
+    await expect(repo.addContribution(db, { memberId: 'member-1', type: 'tfsa', date: '2026-02-01', amountCents: 0, note: '' })).rejects.toThrow();
+  });
+
+  it('recurrentes descartados', async () => {
+    await repo.setRecurringDismissed(db, 'k1', true);
+    await repo.setRecurringDismissed(db, 'k1', true);
+    expect((await db.settings.get('settings'))?.dismissedRecurring).toEqual(['k1']);
+    await repo.setRecurringDismissed(db, 'k1', false);
+    expect((await db.settings.get('settings'))?.dismissedRecurring).toEqual([]);
+  });
+
+  it('el respaldo completo incluye las tablas nuevas', async () => {
+    await repo.setBudget(db, 'cat-dining', 30_000);
+    await repo.addGoal(db, { name: 'Viaje', emoji: '✈️', targetCents: 300_000, savedCents: 0, accountId: null, targetDate: null, ownerId: null });
+    const data = await repo.exportAll(db);
+    const other = new FinanzasDB(`test-restore2-${n}`);
+    await other.open();
+    await repo.replaceAll(other, data);
+    expect(await other.budgets.count()).toBe(1);
+    expect(await other.goals.count()).toBe(1);
+    await other.delete();
+  });
+});

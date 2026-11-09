@@ -2,7 +2,7 @@
  * Datos iniciales: categorías pensadas para un hogar en Canadá y una cuenta
  * principal. Todo se puede renombrar, archivar o ampliar desde Ajustes.
  */
-import type { Account, Category, CategoryKind, Locale, Member, Settings } from './types';
+import type { Account, BudgetGroup, Category, CategoryKind, Locale, Member, Settings } from './types';
 
 /** [clave de traducción, emoji]. La clave se traduce en src/i18n. */
 const EXPENSE: ReadonlyArray<readonly [string, string]> = [
@@ -34,6 +34,30 @@ const INCOME: ReadonlyArray<readonly [string, string]> = [
   ['other_income', '💰'],
 ];
 
+/**
+ * Clasificación inicial para el método 50/30/20 (necesidades vs. deseos).
+ * Es una sugerencia: puedes cambiarla en Ajustes.
+ */
+export const DEFAULT_GROUPS: Record<string, BudgetGroup> = {
+  groceries: 'needs',
+  housing: 'needs',
+  utilities: 'needs',
+  transport: 'needs',
+  insurance: 'needs',
+  health: 'needs',
+  kids: 'needs',
+  education: 'needs',
+  fees: 'needs',
+  dining: 'wants',
+  shopping: 'wants',
+  subscriptions: 'wants',
+  entertainment: 'wants',
+  travel: 'wants',
+  personal_care: 'wants',
+  gifts: 'wants',
+  other_expense: 'wants',
+};
+
 function build(kind: CategoryKind, list: ReadonlyArray<readonly [string, string]>): Category[] {
   return list.map(([key, emoji], order) => ({
     id: `cat-${key}`, // ids estables: facilitan migraciones e importaciones
@@ -43,6 +67,7 @@ function build(kind: CategoryKind, list: ReadonlyArray<readonly [string, string]
     emoji,
     archived: false,
     order,
+    group: kind === 'expense' ? (DEFAULT_GROUPS[key] ?? null) : null,
   }));
 }
 
@@ -78,6 +103,18 @@ export function defaultSettings(locale: Locale): Settings {
     fxRates: {},
     currentMemberId: 'member-1',
     defaultAccountId: 'account-main',
+    onboarded: false,
+    budgetMethod: 'envelopes',
+    projection: {
+      // Supuestos editables, NO recomendaciones: tú decides qué escenarios usar.
+      conservativeBps: 300,
+      baseBps: 500,
+      optimisticBps: 700,
+      monthlyContributionCents: null,
+      withdrawalRateBps: 400,
+      annualExpensesCents: null,
+    },
+    dismissedRecurring: [],
   };
 }
 

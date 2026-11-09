@@ -97,3 +97,33 @@ export function formatDay(date: LocalDate, locale: string): string {
     .toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' })
     .replace('.', '');
 }
+
+/** Días que tiene un mes: daysInMonth('2028-02') → 29. */
+export function daysInMonth(ym: YearMonth): number {
+  const [y, m] = ym.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/**
+ * Suma meses a una fecha, ajustando al último día si el mes es más corto:
+ * addMonths('2026-01-31', 1) → '2026-02-28'.
+ */
+export function addMonths(date: LocalDate, n: number): LocalDate {
+  const ym = shiftMonth(monthOf(date), n);
+  const day = Math.min(Number(date.slice(8, 10)), daysInMonth(ym));
+  return `${ym}-${pad(day)}`;
+}
+
+/** Meses completos entre dos meses: monthsBetween('2026-11', '2027-02') → 3. */
+export function monthsBetween(from: YearMonth, to: YearMonth): number {
+  const [y1, m1] = from.split('-').map(Number) as [number, number];
+  const [y2, m2] = to.split('-').map(Number) as [number, number];
+  return (y2 - y1) * 12 + (m2 - m1);
+}
+
+/** Días entre dos fechas (b − a). */
+export function daysBetween(a: LocalDate, b: LocalDate): number {
+  const [y1, m1, d1] = parts(a);
+  const [y2, m2, d2] = parts(b);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000);
+}

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  addMonths,
+  daysBetween,
+  daysInMonth,
+  monthsBetween,
   currentMonth,
   formatDay,
   formatMonth,
@@ -58,5 +62,24 @@ describe('fechas (las pruebas corren con TZ=America/Vancouver)', () => {
     expect(shiftMonth('2026-01', -1)).toBe('2025-12');
     expect(shiftMonth('2026-11', 14)).toBe('2028-01');
     expect(lastMonths('2026-02', 3)).toEqual(['2025-12', '2026-01', '2026-02']);
+  });
+});
+
+describe('aritmética de meses', () => {
+  it('daysInMonth', () => {
+    expect(daysInMonth('2028-02')).toBe(29);
+    expect(daysInMonth('2026-02')).toBe(28);
+    expect(daysInMonth('2026-12')).toBe(31);
+  });
+  it('addMonths ajusta fin de mes', () => {
+    expect(addMonths('2026-01-31', 1)).toBe('2026-02-28');
+    expect(addMonths('2026-11-15', 2)).toBe('2027-01-15');
+    expect(addMonths('2026-03-31', -1)).toBe('2026-02-28');
+  });
+  it('monthsBetween y daysBetween', () => {
+    expect(monthsBetween('2026-11', '2027-02')).toBe(3);
+    expect(monthsBetween('2026-11', '2026-11')).toBe(0);
+    expect(daysBetween('2026-10-31', '2026-11-09')).toBe(9);
+    expect(daysBetween('2026-11-09', '2026-11-01')).toBe(-8);
   });
 });

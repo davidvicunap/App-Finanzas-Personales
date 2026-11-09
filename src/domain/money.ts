@@ -173,3 +173,56 @@ export function convertCents(cents: Cents, rate: RateMicros): Cents {
 export function ratio(part: Cents, total: Cents): number | null {
   return total === 0 ? null : part / total;
 }
+
+/* ------------------------------------------------------------------
+ * DECIMALES EXACTOS PARA INVERSIONES
+ * Cantidades como 0.00512 BTC o precios como 187.4321 no caben en centavos.
+ * Se guardan como TEXTO ("0.00512") y se multiplican con BigInt, sin floats.
+ * ------------------------------------------------------------------ */
+
+export interface Decimal {
+  /** Dígitos sin punto: "12.345" → 12345n */
+  value: bigint;
+  /** Cuántos de esos dígitos son decimales: "12.345" → 3 */
+  scale: number;
+}
+
+/** "12.345" o "12,345" → { value: 12345n, scale: 3 }. null si no es un decimal ≥ 0 válido. */
+export function parseDecimal(input: string, maxScale = 10): Decimal | null {
+  const s = input.trim().replace(',', '.');
+  const m = /^(\d{1,15})(?:\.(\d+))?$/.exec(s) ?? /^()\.(\d+)$/.exec(s);
+  if (!m) return null;
+  const frac = m[2] ?? '';
+  if (frac.length > maxScale) return null;
+  return { value: BigInt((m[1] || '0') + frac), scale: frac.length };
+}
+
+export function isDecimal(input: string): boolean {
+  return parseDecimal(input) !== null;
+}
+
+/** División entera con redondeo al más cercano (mitades lejos de cero). */
+function roundDiv(n: bigint, d: bigint): bigint {
+  const negative = n < 0n !== d < 0n;
+  const an = n < 0n ? -n : n;
+  const ad = d < 0n ? -d : d;
+  let q = an / ad;
+  if ((an % ad) * 2n >= ad) q += 1n;
+  return negative ? -q : q;
+}
+
+/** cantidad × precio × multiplicador → centavos. Ej.: ("0.5", "64000.10") → 3200005. */
+export function marketValueCents(quantity: string, unitPrice: string, multiplier = 1): Cents {
+  const q = parseDecimal(quantity);
+  const p = parseDecimal(unitPrice);
+  if (!q || !p) throw new Error(`Cantidad o precio inválido: ${quantity} × ${unitPrice}`);
+  if (!Number.isInteger(multiplier) || multiplier < 1) throw new Error(`Multiplicador inválido: ${multiplier}`);
+  const numerator = q.value * p.value * BigInt(multiplier) * 100n;
+  const denominator = 10n ** BigInt(q.scale + p.scale);
+  return assertCents(Number(roundDiv(numerator, denominator)));
+}
+
+/** Multiplica centavos por una fracción entera (n/d) con redondeo. Útil para porcentajes exactos. */
+export function mulDivCents(cents: Cents, numerator: number, denominator: number): Cents {
+  return assertCents(Number(roundDiv(BigInt(cents) * BigInt(numerator), BigInt(denominator))));
+}

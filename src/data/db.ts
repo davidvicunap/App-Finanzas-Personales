@@ -18,8 +18,30 @@
  * Dexie aplica en orden las versiones que falten en cada dispositivo.
  */
 import Dexie, { type EntityTable } from 'dexie';
-import { defaultAccount, defaultCategories, defaultMember, defaultSettings, detectLocale } from '../domain/defaults';
-import type { Account, Category, Member, Settings, Transaction } from '../domain/types';
+import { DEFAULT_GROUPS, defaultAccount, defaultCategories, defaultMember, defaultSettings, detectLocale } from '../domain/defaults';
+import type {
+  Account,
+  BalanceSnapshot,
+  Budget,
+  Category,
+  Contribution,
+  Goal,
+  Holding,
+  Member,
+  RegisteredRoom,
+  Settings,
+  Transaction,
+} from '../domain/types';
+
+/** Foto mensual del patrimonio (para el gráfico de evolución). Se guarda sola. */
+export interface WorthSnapshot {
+  /** El mes: 'YYYY-MM'. Una foto por mes; se actualiza durante el mes. */
+  id: string;
+  assetsCents: number;
+  liabilitiesCents: number;
+  netCents: number;
+  investableCents: number;
+}
 
 export class FinanzasDB extends Dexie {
   members!: EntityTable<Member, 'id'>;
@@ -27,6 +49,13 @@ export class FinanzasDB extends Dexie {
   categories!: EntityTable<Category, 'id'>;
   transactions!: EntityTable<Transaction, 'id'>;
   settings!: EntityTable<Settings, 'id'>;
+  balances!: EntityTable<BalanceSnapshot, 'id'>;
+  budgets!: EntityTable<Budget, 'id'>;
+  goals!: EntityTable<Goal, 'id'>;
+  holdings!: EntityTable<Holding, 'id'>;
+  rooms!: EntityTable<RegisteredRoom, 'id'>;
+  contributions!: EntityTable<Contribution, 'id'>;
+  worth!: EntityTable<WorthSnapshot, 'id'>;
 
   constructor(name = 'mis-finanzas') {
     super(name);
@@ -40,6 +69,38 @@ export class FinanzasDB extends Dexie {
       transactions: 'id, date, accountId, categoryId, memberId',
       settings: 'id',
     });
+
+    // Versión 2: patrimonio, presupuestos, metas, inversiones y cuentas registradas.
+    this.version(2)
+      .stores({
+        balances: 'id, accountId, date',
+        budgets: 'id',
+        goals: 'id',
+        holdings: 'id, accountId',
+        rooms: 'id, memberId',
+        contributions: 'id, memberId, date',
+        worth: 'id',
+      })
+      .upgrade(async (tx) => {
+        // Categorías: clasificación 50/30/20 para las que vienen por defecto.
+        await tx
+          .table('categories')
+          .toCollection()
+          .modify((c: Category) => {
+            if (c.group === undefined) c.group = c.kind === 'expense' && c.builtinKey ? (DEFAULT_GROUPS[c.builtinKey] ?? null) : null;
+          });
+        // Ajustes: campos nuevos. Quien ya usaba la app no necesita la bienvenida.
+        const defaults = defaultSettings('es');
+        await tx
+          .table('settings')
+          .toCollection()
+          .modify((st: Settings) => {
+            st.onboarded ??= true;
+            st.budgetMethod ??= defaults.budgetMethod;
+            st.projection ??= defaults.projection;
+            st.dismissedRecurring ??= [];
+          });
+      });
 
     // Se ejecuta UNA vez, al crear la base de datos por primera vez.
     this.on('populate', async (tx) => {

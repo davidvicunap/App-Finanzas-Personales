@@ -8,9 +8,29 @@ import App from './App';
 import { db } from './data/db';
 
 describe('App', () => {
-  it('registra un gasto con coma decimal y un ingreso, y el resumen cuadra', async () => {
+  it('la bienvenida crea a la pareja y las cuentas en 3 pasos', async () => {
     render(<App />);
     // Navegador de jsdom en inglés → la app arranca en inglés.
+    await screen.findByText('Welcome!');
+    fireEvent.change(screen.getByLabelText('What is your name?'), { target: { value: 'David' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.change(await screen.findByLabelText("Your partner's name"), { target: { value: 'Ana' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await screen.findByText('Which accounts do you have?');
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Go to overview' }));
+    await screen.findByText('Balance this month');
+
+    expect((await db.members.toArray()).map((m) => m.name).sort()).toEqual(['Ana', 'David']);
+    // Marcadas por defecto: CIBC Chequing (reutiliza la cuenta principal), CIBC Visa y una TFSA por persona.
+    const accounts = await db.accounts.toArray();
+    expect(accounts.map((a) => a.name).sort()).toEqual(['CIBC Chequing', 'CIBC Visa', 'Wealthsimple TFSA · Ana', 'Wealthsimple TFSA · David']);
+    expect((await db.accounts.get('account-main'))?.name).toBe('CIBC Chequing');
+    expect((await db.settings.get('settings'))?.onboarded).toBe(true);
+  });
+
+  it('registra un gasto con coma decimal y un ingreso, y el resumen cuadra', async () => {
+    render(<App />);
     await screen.findByText('Balance this month');
 
     // Gasto: "12,50" en Groceries

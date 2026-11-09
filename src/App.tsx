@@ -1,22 +1,28 @@
 /**
  * ESTRUCTURA DE LA APP
  * Barra lateral (escritorio) o barra inferior + botón flotante (móvil),
- * las tres pantallas y el formulario de registro rápido.
+ * las cinco pantallas, la bienvenida guiada y el registro rápido.
  */
-import { useEffect, useState, type ReactElement } from 'react';
+import { Suspense, lazy, useEffect, useState, type ReactElement } from 'react';
 import { AppProvider, useApp } from './ui/context';
 import { currentMonth, monthOf, shiftMonth, type YearMonth } from './domain/dates';
 import type { Transaction } from './domain/types';
 import { db } from './data/db';
 import * as repo from './data/repo';
-import { Dashboard } from './ui/views/Dashboard';
+import { Dashboard, type Who } from './ui/views/Dashboard';
 import { Transactions } from './ui/views/Transactions';
-import { Settings } from './ui/views/Settings';
 import { QuickAdd } from './ui/QuickAdd';
-import { applyTheme, resolveTheme } from './ui/theme';
-import { IconDashboard, IconList, IconMoon, IconPlus, IconSettings, IconSun, Logo } from './ui/icons';
 
-type View = 'dashboard' | 'transactions' | 'settings';
+// Pantallas que se cargan al abrirlas (la primera carga en el teléfono es más rápida).
+const Plan = lazy(() => import('./ui/views/Plan').then((m) => ({ default: m.Plan })));
+const Wealth = lazy(() => import('./ui/views/Wealth').then((m) => ({ default: m.Wealth })));
+const Settings = lazy(() => import('./ui/views/Settings').then((m) => ({ default: m.Settings })));
+const Onboarding = lazy(() => import('./ui/Onboarding').then((m) => ({ default: m.Onboarding })));
+import { applyTheme, resolveTheme } from './ui/theme';
+import type { ActionTarget } from './domain/insights';
+import { IconDashboard, IconList, IconMoon, IconPlus, IconSettings, IconSun, IconTarget, IconWallet, Logo } from './ui/icons';
+
+type View = 'dashboard' | 'transactions' | 'plan' | 'wealth' | 'settings';
 
 export default function App() {
   return (
@@ -32,6 +38,7 @@ function Shell() {
   const [month, setMonth] = useState<YearMonth>(currentMonth());
   // undefined = formulario cerrado; null = nuevo; Transaction = editar
   const [editing, setEditing] = useState<Transaction | null | undefined>(undefined);
+  const [who, setWho] = useState<Who>('all');
 
   // Tema e idioma del documento.
   useEffect(() => {
@@ -69,8 +76,20 @@ function Shell() {
   const nav: { id: View; label: string; icon: ReactElement }[] = [
     { id: 'dashboard', label: t('nav.dashboard'), icon: <IconDashboard /> },
     { id: 'transactions', label: t('nav.transactions'), icon: <IconList /> },
+    { id: 'plan', label: t('nav.plan'), icon: <IconTarget /> },
+    { id: 'wealth', label: t('nav.wealth'), icon: <IconWallet /> },
     { id: 'settings', label: t('nav.settings'), icon: <IconSettings /> },
   ];
+  // Acción sugerida en el resumen → pantalla correspondiente.
+  const goTo = (target: ActionTarget) => go(target);
+
+  if (!settings.onboarded) {
+    return (
+      <Suspense fallback={null}>
+        <Onboarding onDone={(addFirst) => addFirst && setEditing(null)} />
+      </Suspense>
+    );
+  }
 
   return (
     <>
@@ -106,9 +125,13 @@ function Shell() {
         </aside>
 
         <main>
-          {view === 'dashboard' && <Dashboard month={month} setMonth={setMonth} />}
+          {view === 'dashboard' && <Dashboard month={month} setMonth={setMonth} who={who} setWho={setWho} goTo={goTo} />}
           {view === 'transactions' && <Transactions month={month} setMonth={setMonth} onEdit={setEditing} onAdd={() => setEditing(null)} />}
-          {view === 'settings' && <Settings />}
+          <Suspense fallback={null}>
+            {view === 'plan' && <Plan month={month} setMonth={setMonth} />}
+            {view === 'wealth' && <Wealth />}
+            {view === 'settings' && <Settings />}
+          </Suspense>
         </main>
       </div>
 

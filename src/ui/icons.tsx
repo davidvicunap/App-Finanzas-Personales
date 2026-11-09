@@ -113,3 +113,28 @@ export const Logo = () => (
     </svg>
   </span>
 );
+export const IconTarget = () => (
+  <Icon>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="5" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+  </Icon>
+);
+export const IconWallet = () => (
+  <Icon>
+    <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H18v3" />
+    <rect x="3" y="7.5" width="18" height="12" rx="2.5" />
+    <circle cx="16.5" cy="13.5" r="1.3" fill="currentColor" />
+  </Icon>
+);
+export const IconSpark = () => (
+  <Icon>
+    <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6" />
+  </Icon>
+);
+export const IconArrowRight = () => (
+  <Icon width={16} height={16} strokeWidth={2.2}>
+    <line x1="5" y1="12" x2="19" y2="12" />
+    <polyline points="13 6 19 12 13 18" />
+  </Icon>
+);

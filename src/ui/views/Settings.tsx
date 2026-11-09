@@ -5,12 +5,13 @@ import { useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } fr
 import { useApp } from '../context';
 import { db } from '../../data/db';
 import * as repo from '../../data/repo';
-import { createBackup, parseBackup, transactionsToCsv } from '../../domain/backup';
+import { createBackup, decryptText, encryptText, isEncryptedBackup, parseBackup, transactionsToCsv } from '../../domain/backup';
 import { CURRENCIES, formatRate, parseRate, type CurrencyCode } from '../../domain/money';
 import { today } from '../../domain/dates';
 import { ACCOUNT_TYPES, type AccountType, type CategoryKind, type Id, type ThemePref } from '../../domain/types';
 import { LOCALES, type MessageKey } from '../../i18n';
 import { SectionTitle } from '../components/common';
+import { Field, Sheet } from '../components/kit';
 
 /** Descarga un archivo generado en el navegador (nada sale del dispositivo). */
 function download(filename: string, content: string, mime: string) {
@@ -335,14 +336,23 @@ function DataSection() {
     app.toast(t('set.exported'));
   };
 
+  // Respaldo cifrado: 'export' pide contraseña para cifrar; 'import' para abrir uno cifrado.
+  const [crypt, setCrypt] = useState<{ mode: 'export' } | { mode: 'import'; text: string } | null>(null);
+
+  const restore = async (text: string) => {
+    const result = parseBackup(text);
+    if (!result.ok) return app.toast(result.error);
+    if (!window.confirm(t('set.importConfirm', { n: result.data.transactions.length }))) return;
+    await app.run(() => repo.replaceAll(db, result.data), t('set.imported'));
+  };
+
   const importJson = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // permite volver a elegir el mismo archivo
     if (!file) return;
-    const result = parseBackup(await file.text());
-    if (!result.ok) return app.toast(result.error);
-    if (!window.confirm(t('set.importConfirm', { n: result.data.transactions.length }))) return;
-    await app.run(() => repo.replaceAll(db, result.data), t('set.imported'));
+    const text = await file.text();
+    if (isEncryptedBackup(text)) setCrypt({ mode: 'import', text });
+    else await restore(text);
   };
 
   const wipe = async () => {
@@ -356,6 +366,11 @@ function DataSection() {
       <div className="card">
         <Row label={t('set.exportJson')} desc={t('set.exportJsonDesc')}>
           <button className="btn btn-ghost" onClick={() => void exportJson()}>
+            {t('set.download')}
+          </button>
+        </Row>
+        <Row label={t('set.exportEncrypted')} desc={t('set.exportEncryptedDesc')}>
+          <button className="btn btn-ghost" onClick={() => setCrypt({ mode: 'export' })}>
             {t('set.download')}
           </button>
         </Row>
@@ -376,6 +391,65 @@ function DataSection() {
           </button>
         </Row>
       </div>
+      {crypt && (
+        <PassphraseSheet
+          mode={crypt.mode}
+          onClose={() => setCrypt(null)}
+          onSubmit={async (pass) => {
+            if (crypt.mode === 'export') {
+              const data = await repo.exportAll(db);
+              const enc = await encryptText(JSON.stringify(createBackup(data)), pass);
+              download(`mis-finanzas-cifrado-${stamp()}.json`, enc, 'application/json');
+              app.toast(t('set.exported'));
+            } else {
+              await restore(await decryptText(crypt.text, pass));
+            }
+          }}
+        />
+      )}
     </>
   );
 }
+
+/** Pide la contraseña del respaldo cifrado (dos veces al crear uno). */
+function PassphraseSheet({ mode, onClose, onSubmit }: { mode: 'export' | 'import'; onClose: () => void; onSubmit: (pass: string) => Promise<void> }) {
+  const app = useApp();
+  const { t } = app;
+  const [pass, setPass] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (mode === 'export' && pass !== repeat) return app.toast(t('set.passphraseMismatch'));
+    setBusy(true);
+    const ok = await app.run(() => onSubmit(pass));
+    setBusy(false);
+    if (ok) onClose();
+  };
+  return (
+    <Sheet
+      title={t('set.exportEncrypted')}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>
+            {t('form.cancel')}
+          </button>
+          <button className="btn btn-primary" disabled={busy || pass.length < 8} onClick={() => void submit()}>
+            {busy ? t('set.encrypting') : mode === 'export' ? t('set.download') : t('set.open')}
+          </button>
+        </>
+      }
+    >
+      <p className="sheet-note">{mode === 'export' ? t('set.passphraseWarning') : t('set.passphraseOpen')}</p>
+      <Field label={t('set.passphrase')} htmlFor="pp1">
+        <input id="pp1" type="password" autoComplete="new-password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && mode === 'import' && void submit()} />
+      </Field>
+      {mode === 'export' && (
+        <Field label={t('set.passphraseRepeat')} htmlFor="pp2">
+          <input id="pp2" type="password" autoComplete="new-password" value={repeat} onChange={(e) => setRepeat(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void submit()} />
+        </Field>
+      )}
+    </Sheet>
+  );
+}
+

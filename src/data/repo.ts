@@ -8,7 +8,6 @@
 import { assertCents, isDecimal, type Cents, type CurrencyCode } from '../domain/money';
 import { isLocalDate, type LocalDate } from '../domain/dates';
 import { MEMBER_COLORS } from '../domain/defaults';
-import { appDataSchema } from '../domain/backup';
 import { roomId } from '../domain/registered';
 import type {
   Account,
@@ -245,7 +244,10 @@ export async function exportAll(db: FinanzasDB): Promise<AppData> {
 
 /** Reemplaza TODO por los datos dados (ya validados). Es atómico: o todo o nada. */
 export async function replaceAll(db: FinanzasDB, data: AppData): Promise<void> {
-  const v = appDataSchema.parse(data) as AppData; // segunda validación, por seguridad
+  // Segunda validación, por seguridad. Se carga aquí (y no arriba) para que la
+  // librería de validación no pese en la primera carga de la app.
+  const { appDataSchema } = await import('../domain/backup');
+  const v = appDataSchema.parse(data) as AppData;
   await db.transaction('rw', ALL_TABLES(db), async () => {
     await Promise.all(ALL_TABLES(db).map((t) => t.clear()));
     await db.members.bulkAdd(v.members);

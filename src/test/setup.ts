@@ -17,3 +17,8 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList;
 }
+
+// Desmonta lo que cada prueba de interfaz haya dibujado, para que no se mezclen.
+import { afterEach } from 'vitest';
+import { cleanup } from '@testing-library/react';
+afterEach(() => cleanup());

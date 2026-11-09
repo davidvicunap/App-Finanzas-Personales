@@ -180,6 +180,6 @@ export function transactionsToCsv(txs: readonly Transaction[], names: CsvLookups
         csvCell(t.note),
       ].join(',');
     });
-  // ﻿ (BOM) hace que Excel reconozca los acentos (UTF-8).
-  return '﻿' + [header.join(','), ...rows].join('\r\n') + '\r\n';
+  // El carácter BOM (U+FEFF) hace que Excel reconozca los acentos (UTF-8).
+  return '\uFEFF' + [header.join(','), ...rows].join('\r\n') + '\r\n';
 }

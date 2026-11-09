@@ -91,7 +91,7 @@ describe('CSV', () => {
       category: () => 'Supermercado',
       member: () => 'Yo',
     });
-    const lines = csv.replace('﻿', '').trim().split('\r\n');
+    const lines = csv.replace('\uFEFF', '').trim().split('\r\n');
     expect(lines[0]).toBe('date,type,amount,currency,category,account,member,note');
     expect(lines[1]).toBe('2026-11-09,expense,-12.50,CAD,Supermercado,Cuenta principal,Yo,Save-On-Foods');
   });

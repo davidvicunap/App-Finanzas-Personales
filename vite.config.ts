@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
+import { createHash } from 'node:crypto';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -13,10 +14,43 @@ const base = process.env.GITHUB_PAGES === 'true' ? '/App-Finanzas-Personales/' :
 // Vitest lance sus procesos, para que todos la hereden.
 if (process.env.VITEST) process.env.TZ = 'America/Vancouver';
 
+/**
+ * Añade una Política de Seguridad de Contenido (CSP) al HTML final.
+ * Solo permite ejecutar código de la propia app (bloquea scripts inyectados).
+ * Se aplica solo en el build porque el modo desarrollo usa scripts en línea.
+ * El único script en línea (el del tema) se autoriza por su hash exacto.
+ */
+function contentSecurityPolicy(): Plugin {
+  return {
+    name: 'content-security-policy',
+    apply: 'build',
+    transformIndexHtml(html) {
+      const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+        (m) => `'sha256-${createHash('sha256').update(m[1]!).digest('base64')}'`,
+      );
+      const csp = [
+        "default-src 'self'",
+        `script-src 'self' ${hashes.join(' ')}`,
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "manifest-src 'self'",
+        "worker-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'none'",
+      ].join('; ');
+      return html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${csp}" />`);
+    },
+  };
+}
+
 export default defineConfig({
   base,
   plugins: [
     react(),
+    contentSecurityPolicy(),
     // Convierte la app en PWA: se instala en el teléfono y funciona sin conexión.
     VitePWA({
       registerType: 'autoUpdate',

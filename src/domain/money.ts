@@ -44,7 +44,7 @@ export function sumCents(values: readonly Cents[]): Cents {
  */
 export function parseAmount(input: string): Cents | null {
   // Quitar espacios (incluido el espacio fino que usa el francés) y símbolos de moneda.
-  let s = input.trim().replace(/[\s  ]/g, '').replace(/^(US|CA|C)?\$/i, '').replace(/\$$/, '');
+  const s = input.trim().replace(/[\s\u00a0\u202f]/g, '').replace(/^(US|CA|C)?\$/i, '').replace(/\$$/, '');
   if (s === '' || !/^[\d.,]+$/.test(s)) return null;
 
   const lastDot = s.lastIndexOf('.');
